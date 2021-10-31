@@ -1,0 +1,341 @@
+---
+title: "Homework 2"
+author: "Victor Andrean"
+date: "April 15, 2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r echo=TRUE}
+# Number 1. Summarize and visualize the data using summary, str, pairs.panels, ggplot.
+# Important variables:
+# Charlson Comorbidity Index: ranging from 0-10. A score of 0 indicates no comorbid conditions. 
+#                             Higher scores indicate a greater level of comorbidity.
+# Chronic Disease Score: A summary score based on the presence and complexity 
+#                         of prescription medications for select chronic conditions. 
+#                       A high score in decades the patient has severe chronic diseases. 
+#                       -9 indicates a missing value.
+
+# import some important libraries and funtion
+rm(list = ls()) 
+RSQUARE = function(y_actual,y_predict)
+{ cor(y_actual,y_predict)^2 }
+MAE<-function(obs, pred){ mean(abs(obs-pred)) } 
+library(stargazer)
+
+
+#loading the data
+qol<-read.csv("https://umich.instructure.com/files/481332/download?download_frd=1")
+NAN.count=sum(is.na(qol))
+
+# remove missing values
+qol<-qol[!qol$CHRONICDISEASESCORE==-9, ]
+summary(qol$CHRONICDISEASESCORE)
+
+# qol<-qol[!qol$CHARLSONSCORE==-9, ]
+# summary(qol$CHARLSONSCORE)
+
+#1 Summarize and visualize the data using summary, str, pairs.panels, ggplot.
+summary(qol)
+str(qol)
+
+# install.packages("psych")
+library(psych)
+cols=c('AGE','QOL_Q_01','MSA_Q_01','PH2_Q_01','TOS_Q_01','CHARLSONSCORE','CHRONICDISEASESCORE')
+pairs.panels(qol[,cols],
+             smooth = TRUE, # If TRUE, draws loess smooths
+             scale = FALSE, # If TRUE, scales the correlation text font
+             density = TRUE, # If TRUE, adds density plots and histograms
+             ellipses = TRUE, # If TRUE, draws ellipses
+             method = "pearson", # Correlation method (also "spearman" or "kendall")
+             pch = 21, # pch symbol
+             lm = FALSE, # If TRUE, plots linear fit rather than the LOESS (smoothed) fit
+             cor = TRUE, # If TRUE, reports correlations
+             jiggle = FALSE, # If TRUE, data points are jittered
+             factor = 2, # Jittering factor
+             hist.col = 4, # Histograms color
+             stars = TRUE, # If TRUE, adds significance level with stars
+             ci = TRUE) # If TRUE, adds confidence intervals
+
+# [1] "ID"                  "INTERVIEWDATE"       "LANGUAGE"            "AGE"                
+# [5] "RACE_ETHNICITY"      "SEX"                 "QOL_Q_01"            "QOL_Q_02"           
+# [9] "QOL_Q_03"            "QOL_Q_04"            "QOL_Q_05"            "QOL_Q_06"           
+# [13] "QOL_Q_07"            "QOL_Q_08"            "QOL_Q_09"            "QOL_Q_10"           
+# [17] "MSA_Q_01"            "MSA_Q_02"            "MSA_Q_03"            "MSA_Q_04"           
+# [21] "MSA_Q_05"            "MSA_Q_06"            "MSA_Q_07"            "MSA_Q_08"           
+# [25] "MSA_Q_09"            "MSA_Q_10"            "MSA_Q_11"            "MSA_Q_12"           
+# [29] "MSA_Q_13"            "MSA_Q_14"            "MSA_Q_15"            "MSA_Q_16"           
+# [33] "MSA_Q_17"            "PH2_Q_01"            "PH2_Q_02"            "TOS_Q_01"           
+# [37] "TOS_Q_02"            "TOS_Q_03"            "TOS_Q_04"            "CHARLSONSCORE"      
+# [41] "CHRONICDISEASESCORE"
+
+
+# data which is in -9 are actually missing data. 
+library(ggplot2)
+
+ggplot(qol,aes(x = QOL_Q_01, y = CHARLSONSCORE)) +
+  geom_point()+
+  geom_smooth(method='lm')
+
+ggplot(qol,aes(x = QOL_Q_01, y = CHRONICDISEASESCORE)) +
+  geom_point()+
+  geom_smooth(method='lm')
+
+
+hist(qol$CHRONICDISEASESCORE, main = "Histogram for CHRONICDISEASESCORE" ,breaks = 20)
+
+# ===========================correlation plot=======================================
+# http://www.sthda.com/english/wiki/ggplot2-quick-correlation-matrix-heatmap-r-software-and-data-visualization
+
+columns_idx=c(4,7:40)
+for (s in seq(1,length(columns_idx),10))
+{
+  e=s+10
+  cols=columns_idx[s:e]
+  cols <- cols[!is.na(cols)]
+  print(cols)
+  
+  
+
+   #full features 7:41
+  cormat <- round(cor(qol[c(cols,41)]),2)
+  library(reshape2)
+  
+  # Get upper triangle of the correlation matrix
+  get_upper_tri <- function(cormat){
+    cormat[lower.tri(cormat)]<- NA
+    return(cormat)
+  }
+  
+  reorder_cormat <- function(cormat){
+    # Use correlation between variables as distance
+    dd <- as.dist((1-cormat)/2)
+    hc <- hclust(dd)
+    cormat <-cormat[hc$order, hc$order]
+  }
+  
+  # Reorder the correlation matrix
+  cormat <- reorder_cormat(cormat)
+  upper_tri <- get_upper_tri(cormat)
+  # Melt the correlation matrix
+  melted_cormat <- melt(upper_tri, na.rm = TRUE)
+  # Create a ggheatmap
+  ggheatmap <- ggplot(melted_cormat, aes(Var2, Var1, fill = value))+
+    geom_tile(color = "white")+
+    scale_fill_gradient2(low = "blue", high = "red", mid = "white", 
+                         midpoint = 0, limit = c(-1,1), space = "Lab", 
+                         name="Pearson\nCorrelation") +
+    theme_minimal()+ # minimal theme
+    theme(axis.text.x = element_text(angle = 45, vjust = 1, 
+                                     size = 8, hjust = 1))+
+    coord_fixed()
+  
+  
+  ggheatmap <-ggheatmap + 
+    geom_text(aes(Var2, Var1, label = value), color = "black", size = 2) +
+    theme(
+      axis.title.x = element_blank(),
+      axis.title.y = element_blank(),
+      panel.grid.major = element_blank(),
+      panel.border = element_blank(),
+      panel.background = element_blank(),
+      axis.ticks = element_blank(),
+      legend.justification = c(1, 0),
+      legend.position = c(0.6, 0.7),
+      legend.direction = "horizontal")+
+    guides(fill = guide_colorbar(barwidth = 7, barheight = 1,
+                                 title.position = "top", title.hjust = 0.5))
+  
+  # Print the heatmap
+  print(ggheatmap)
+}
+
+# ========================================================================================
+# majority of the independent features doesn't have a strong correlation except "TOS_Q_04"
+# which means we won't have multicolinearity problem
+# MSA features have quite strong linear correlation with the dependent variable
+
+qol_clean<-qol[,-c(1:3)]
+# 
+# unique(qol_clean$RACE_ETHNICITY)
+# unique(qol_clean$SEX)
+
+# qol_clean$RACE_ETHNICITY <- factor(qol_clean$RACE_ETHNICITY)
+# qol_clean$SEX<- factor(qol_clean$SEX)
+
+# random split into training and testing data
+set.seed(1234)
+train_index <- sample(seq_len(nrow(qol_clean)), size = 0.8*nrow(qol_clean))
+qol_train<-qol_clean[train_index, ]
+qol_test<-qol_clean[-train_index, ]
+
+# check features
+summary(qol_train)
+str(qol_train)
+
+# Fit the full model 
+model1 <- lm(CHRONICDISEASESCORE~., data = qol_train) 
+summary(model1) 
+
+# plot QQ and residual plot
+plot(model1, which = 1:2)
+library(fBasics) 
+normalTest(model1$residuals)
+
+# Coefficients: Stars or dots next to variables show if the variable is significant and should be included in the model. 
+# However, if nothing is next to a variable then it means this estimated covariance could be 0 in the linear model. 
+# Another thing we can look at is the Pr(>|t|) column. 
+# A number closed to 0 in this column indicates the row variable is significant, otherwise it could be deleted from the model. 
+# After fitting the features to the linear regression, I discovered that AGE and QOL_Q_07 are very significant and have biggest predictive power. 
+# Hence, they must be included
+
+# Adjusted R-squared: What percent in y is explained by included predictors. 
+# Here we have 0.06394 which indicates the model is not bad but could be improved. 
+# Usually a well-fitted linear regression would have over 0.7.
+
+
+
+library(EnvStats)
+bx<-boxcox(qol_train$CHRONICDISEASESCORE,optimize = TRUE)
+model1.boxcox.all_feats<-lm((qol_train$CHRONICDISEASESCORE^bx$lambda-1)/bx$lambda~., data=qol_train)
+summary(model1.boxcox.all_feats)
+
+model1.sqrt <- lm(sqrt(CHRONICDISEASESCORE)~AGE+QOL_Q_02+QOL_Q_06+QOL_Q_07+CHARLSONSCORE, data = qol_train) 
+model1.exp <- lm(exp(CHRONICDISEASESCORE)~AGE+QOL_Q_02+QOL_Q_06+QOL_Q_07+CHARLSONSCORE, data = qol_train)
+model1.boxcox<-lm((qol_train$CHRONICDISEASESCORE^bx$lambda-1)/bx$lambda~AGE+QOL_Q_02+QOL_Q_06+QOL_Q_07+CHARLSONSCORE,data = qol_train)
+
+stargazer(model1,model1.boxcox.all_feats,model1.sqrt,model1.exp,model1.boxcox,
+          dep.var.labels.include = FALSE,
+          single.row = TRUE, 
+          model.numbers= FALSE,
+          type = "text",
+          dep.var.labels=c("CHRONICDISEASESCORE"),
+          intercept.bottom = FALSE, 
+          column.labels=c("model1","model1.boxcox.all_feats","model1.sqrt","model1.exp","model1.boxcox"), 
+          align=TRUE,
+          out = "table1.txt",
+          title="Results")
+
+
+plot(model1.sqrt, which = 1:2)
+plot(model1.boxcox, which = 1:2)
+normalTest(model1.boxcox$residuals)
+
+# Residual vs Fitted: This is the residual diagnostic plot. 
+# We can see that the residuals of observations indexed 1119, 995 and 61 are relatively far apart from the rest. 
+# They are potential influential points or outliers. The residual error is not heteroscedasticity.
+
+# Normal Q-Q: This plot examines the normality assumption of the model. 
+# If these dots follows the line on the graph, the normality assumption is valid. 
+# In our case, it is relatively close to the line. 
+# So, we can say that our model is valid in terms of normality.
+
+#  according to the residual error plot, there is no heteroscedasticity 
+#  From shapiro test, W is close to 1 which means the data is close to normal distribution
+
+# Half-normal plot for leverages
+# install.packages("faraway")
+library(faraway)
+halfnorm(lm.influence(model1)$hat, nlab = 2, ylab="Leverages")
+
+qol_train[c(57,1151),]
+summary(qol_train)
+
+# predict outcome of the new data and measure the R2
+qol.p<-predict(model1, qol_test)
+plot(qol.p)
+plot(qol_test$CHRONICDISEASESCORE)
+
+# evaluation
+RSQUARE(qol_test$CHRONICDISEASESCORE,qol.p)
+
+
+# =============================== AIC ================================================
+library(MASS) 
+library(caret)
+model1.AIC <- stepAIC(model1, direction = "both", trace = FALSE) 
+summary(model1.AIC) 
+
+# =============================== BIC ================================================
+# form_model <- formula(lm(exp(CHRONICDISEASESCORE)~.,data = dat_train)) 
+# mod <- lm(CHRONICDISEASESCORE~1,data = dat_train) 
+n <- (nrow(qol_train)) 
+BIC_model <- step(model1,direction = "forward", k=log(n),trace = FALSE ) 
+summary(BIC_model) 
+stargazer(BIC_model,model1.AIC,
+          type = "text",
+          dep.var.labels=c("CHRONICDISEASESCORE"),
+          intercept.bottom = FALSE, 
+          column.labels=c("BIC model","AIC Model"), 
+          align=TRUE,
+          out = "table2.txt",
+          title="BIC & AIC ")
+
+
+# ==================using regression tree model to improve the performances=================
+
+#install.packages("rpart")
+library(rpart)
+qol.rpart<-rpart(CHRONICDISEASESCORE~., data=qol_train)
+qol.rpart
+
+
+## install.packages("rpart.plot")
+library(rpart.plot)
+rpart.plot(qol.rpart, digits=3)
+
+rpart.plot(qol.rpart, digits = 4, fallen.leaves = T, type=3, extra=101)
+
+library(rattle)
+fancyRpartPlot(qol.rpart, cex = 0.8)
+qol.p<-predict(qol.rpart, qol_test)
+
+
+# evaluation
+RSQUARE(qol_test$CHRONICDISEASESCORE,qol.p)
+
+summary(qol.p)
+summary(qol_test$CHRONICDISEASESCORE)
+cor(qol.p, qol_test$CHRONICDISEASESCORE)
+
+MAE(qol_test$CHRONICDISEASESCORE, qol.p)
+
+mean_estimator=mean(qol_test$CHRONICDISEASESCORE)
+mean_estimator
+MAE(qol_test$CHRONICDISEASESCORE, mean_estimator)
+# ==================using M5P to imporve model=================
+#install.packages("RWeka")
+# Sometimes RWeka installations may be off a bit, see:
+# http://stackoverflow.com/questions/41878226/using-rweka-m5p-in-rstudio-yields-java-lang-noclassdeffounderror-no-uib-cipr-ma
+path_dir=Sys.getenv("WEKA_HOME") # where does it point to? Maybe some obscure path?
+## [1] ""
+# if yes, correct the variable:
+Sys.setenv(WEKA_HOME=path_dir)
+library(RWeka)
+# WPM("list-packages", "installed")
+qol.m5<-M5P(CHRONICDISEASESCORE~., data=qol_train)
+qol.m5
+
+#summary of the model
+summary(qol.m5)
+# get prediction
+qol.p.m5<-predict(qol.m5, qol_test)
+# summary of the predictionm
+summary(qol.p.m5)
+# get correlation between estimation and truth
+cor(qol.p.m5, qol_test$CHRONICDISEASESCORE)
+# get MAE
+MAE(qol_test$CHRONICDISEASESCORE, qol.p.m5)
+RSQUARE(qol_test$CHRONICDISEASESCORE,qol.p.m5)
+
+# Conclusion: 
+#   1. Regression tree model (R2=0.1705679) is better than OLS (R2=0.06382) 
+#   2. M5P model perform the best with R2=0.2138493
+
+```
+

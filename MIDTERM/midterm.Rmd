@@ -1,0 +1,378 @@
+---
+title: "Midterm Time Series Analysis and Forecasting"
+author: "Victor Andrean (D10907814)"
+date: "2021-05-07"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+NUMBER 1: Explain why multiple regression models are needed to checking the presence of serial correlation.
+
+In multiple regression, autocorelation can cause Multicollinearity problem.
+Multicollinearity refers to a situation in which more than two explanatory variables in a multiple regression model are highly linearly related.  In practice, we rarely face perfect multicollinearity in a data set. More commonly, the issue of multicollinearity arises when there is an approximate linear relationship among two or more independent variables. Mathematically, a set of variables is perfectly multicollinear if there exist one or more exact linear relationships among some of the variables
+
+The regular Multiple Regression routine assumes that the random-error components are independent from one
+observation to the next. However, this assumption is often not appropriate for business and economic data.
+Instead, it is more appropriate to assume that the error terms are positively correlated over time. These are called
+autocorrelated or serially correlated data.
+
+Consequences of the error terms being serially correlated include inefficient estimation of the regression
+coefficients, under estimation of the error variance (MSE), under estimation of the variance of the regression
+coefficients, and inaccurate confidence intervals.
+The presence of serial correlation can be detected by the Durbin-Watson test and by plotting the residuals against
+their lags.
+
+
+NUMBER 2
+
+```{r echo=TRUE}
+
+#==================import all of the libraries and functions============
+# rm(list = ls())
+library(fBasics)
+library(xts)
+library(highfrequency)
+library(dplyr)
+library(lubridate)
+library(ggplot2)
+library(stargazer)
+library(plyr)
+library(forecast)
+library(caret)
+
+displayForecastErrors <- function(forecastErrors)
+          {
+            # Generate a histogram of the Forecast Errors
+            binsize <- IQR(forecastErrors)/4
+            sd   <- sd(forecastErrors)
+            min  <- min(forecastErrors) - sd
+            max  <- max(forecastErrors) + sd
+            
+            # Generate 5K normal(0,sd) RVs
+            norm <- rnorm(5000, mean=0, sd=sd)
+            min2 <- min(norm)
+            max2 <- max(norm)
+            if (min2 < min) { min <- min2 }
+            if (max2 > max) { max <- max2 }
+            
+            # Plot red histogram of the forecast errors
+            bins <- seq(min, max, binsize)
+            hist(forecastErrors, col="red", freq=FALSE, breaks=bins)
+            
+            myHist <- hist(norm, plot=FALSE, breaks=bins)
+            
+            # Overlay the Blue normal curve on top of forecastErrors histogram
+            points(myHist$mids, myHist$density, type="l", col="blue", lwd=2)
+          }
+RSQUARE = function(y_actual,y_predict)
+          { cor(y_actual,y_predict)^2 }
+
+
+RMSE <- function(y_actual,y_predict)
+        {
+          error<-y_actual-y_predict
+          sqrt(mean(error^2))
+        }
+
+MAPE<- function(y_actual,y_predict)
+        {
+          mean(abs((y_actual-y_predict)/y_actual)) * 100
+        }
+
+```
+
+```{r echo=TRUE}
+#============loading data============================================
+iphone<-read.csv("iphone.csv",header = TRUE)
+iphone<-iphone[complete.cases(iphone),]
+# attach(iphone)
+# search()
+
+```
+
+
+```{r echo=TRUE}
+#==============create multivariate data===========================
+data_ln=dim(iphone)[1]
+label=rep(c('Q3','Q4','Q1','Q2'), times = ceiling(data_ln/4))
+label=label[1:data_ln]
+
+iphone$label=label
+dummy <- dummyVars(" ~ label", data=iphone)
+newdata <- data.frame(predict(dummy, newdata = iphone)) 
+# colnames(newdata)<-c('Q1','Q2','Q3','Q4')
+iphone[c('Q1','Q2','Q3','Q4')]<-newdata
+iphone$T=seq(1,data_ln,by=1)
+iphone$T2=seq(1,data_ln,by=1)^2
+
+hist_iphone.lm<-iphone[1:42,]
+hold_iphone.lm<-iphone[43:46,]
+
+iphone.Ts<-ts(iphone$iPhone, start=c(2007, 3), frequency=4)
+hist_iphone.Ts<-ts(iphone[1:42,]$iPhone, start=c(2007, 3),end = c(2017, 4), frequency=4)
+hold_iphone.Ts<-ts(iphone[43:46,]$iPhone, start=c(2018, 1),end = c(2018, 4), frequency=4)
+
+```
+
+2a. Plot the series. What can you learn from examining this plot?
+```{r echo=TRUE}
+# ts.plot(iphone.Ts)
+plot(iphone.Ts, col = "black", type = "o", lwd = 2, ylab = "units (in million)", xlab = "Time in Year")
+```
+
+the data consists of long term trend and seasonality
+the mean and the variance of the data are also not constant as time progress. 
+Hence, this time series is not stationary.
+
+2b. Calculate and display the first 12 autocorrelations for the series. What do the ACF and PACF suggest about the series?
+```{r echo=TRUE}
+#============== acf and pacf plot========================================
+# ddata=decompose(iphone.Ts,'multiplicative')
+# plot(ddata)
+acf(iphone[1:42,]$iPhone, main="acf",lag.max = 12)
+pacf(iphone[1:42,]$iPhone, main="pacf",lag.max = 12)
+
+```
+According to ACF plot Time series lags are significatly correlated up to lag 9
+According to PACF plot Time series of the lag 1,3,4,5 have significant correlation
+
+2c. Suggest a possible set of differencing to use with the series.
+```{r echo=TRUE}
+hist_iphone.Ts.d1<-diff(hist_iphone.Ts, differences=1)
+plot.ts(hist_iphone.Ts.d1, main="1st differencing")
+tseries::adf.test(hist_iphone.Ts.d1, alternative = "stationary")
+
+hist_iphone.Ts.d2<-diff(hist_iphone.Ts, differences=2)
+plot.ts(hist_iphone.Ts.d2, main="2nd differencing")
+tseries::adf.test(hist_iphone.Ts.d2, alternative = "stationary")
+
+```
+
+to make the series stationary I suggested 
+first differencing is not enough to make the time series data become stationary.
+second difference can succesfully make the data stationary.
+
+2d. Estimate an ARIMA model that you believe to be good candidate for forecasting future. The Ljung-box statistics and report your findings. Finally, plot the first 12 autocorrelations of the residuals to your best model.
+```{r echo=TRUE}
+suggested_arima <- arima(hist_iphone.Ts, order=c(0,1,0),seasonal = list(order = c(0,1,0), period = 4),method="ML")
+
+summary(suggested_arima)
+
+
+#to optimize the result, I use auto arima to find the best setup.
+arima_model<-auto.arima(hist_iphone.Ts, seasonal=TRUE, ic="aic",trace = T)
+arima_model
+summary(arima_model)
+```
+
+The Ljung Box test is a way to test for the absence of serial autocorrelation, up to a specified lag k.
+The test determines whether or not errors are iid (i.e. white noise) or whether there is something more behind them;whether or not the autocorrelations for the errors or residuals are non zero. 
+
+Essentially, it is a test of lack of fit: if the autocorrelations of the residuals are very small, we say that the model doesn’t show ‘significant lack of fit’.
+
+The null hypothesis of the Box Ljung Test, H0, is that our model does not show lack of fit (or in simple terms—the model is just fine). The alternate hypothesis, Ha, is just that the model does show a lack of fit.
+
+
+```{r echo=TRUE}
+Box.test(resid(arima_model),type="Ljung",lag=12,fitdf=1)
+```
+
+X-squared = 13.251, df = 11, p-value = 0.2772
+fail to reject null hypothesis. The model does not show lack of fit (the model is just fine)
+
+
+The following is residual analysis for ARIMA model
+```{r echo=TRUE}
+plot(residuals(arima_model))
+Acf(residuals(arima_model),lag.max = 12)
+normalTest(residuals(arima_model))
+tsdisplay(residuals(arima_model), lag.max=12, main='Model Residuals')
+displayForecastErrors(residuals(arima_model))
+```
+According to Ljung-Box and ACF of residual error, we can see that the model can sucessfully capture trend and seasonality.
+
+2e. Compute the RMSEs and MAPEs of the iPhone for both historical period and holdout period using ARIMA and multiple linear regression model. 
+```{r echo=TRUE}
+arima.forecast<-forecast(arima_model, h=4)
+plot(arima.forecast)
+plot(arima.forecast$mean)
+
+n_testing=length(hold_iphone.Ts)
+n_training=length(hist_iphone.Ts)
+
+require(ggplot2)
+library(reshape2)
+df_test <- data.frame (time = 1:n_testing,
+                       forecast = arima.forecast$mean,
+                       real = hold_iphone.Ts)
+
+df_train <- data.frame (time = 1:n_training,
+                        forecast = arima.forecast$fitted,
+                        real = hist_iphone.Ts)
+
+
+df_train.melt  <- melt(df_train ,  id.vars = 'time', variable.name = 'series')
+df_test.melt <- melt(df_test ,  id.vars = 'time', variable.name = 'series')
+
+ggplot(df_train.melt, aes(time,value)) + geom_line(aes(colour = series))
+ggplot(df_test.melt, aes(time,value)) + geom_line(aes(colour = series))
+
+
+arima.train.R2<-RSQUARE(df_train$real,df_train$forecast)
+arima.test.R2<-RSQUARE(df_test$real,df_test$forecast)
+
+arima.train.RMSE<-RMSE(df_train$real,df_train$forecast)
+arima.test.RMSE<-RMSE(df_test$real,df_test$forecast)
+
+arima.train.MAPE<-MAPE(df_train$real,df_train$forecast)
+arima.test.MAPE<-MAPE(df_test$real,df_test$forecast)
+
+arima.report<-rbind(arima.train.R2,arima.test.R2,
+                    arima.train.RMSE,arima.test.RMSE,
+                    arima.train.MAPE,arima.test.MAPE)
+arima.report
+```
+
+
+```{r echo=TRUE}
+#==================Regression model=======================
+# SLR<- lm(iPhone~T, data = hist_iphone.lm) 
+# summary(SLR) 
+
+MLR<- lm(iPhone~T+T2+Q2+Q3+Q4, data = hist_iphone.lm) 
+summary(MLR) 
+
+
+MLR.p.hist<-predict(MLR, hist_iphone.lm)
+MLR.p.hold<-predict(MLR, hold_iphone.lm)
+
+
+MLR.train.R2<-RSQUARE(hist_iphone.lm$iPhone,MLR.p.hist)
+MLR.test.R2<-RSQUARE(hold_iphone.lm$iPhone,MLR.p.hold)
+
+MLR.train.RMSE<-RMSE(hist_iphone.lm$iPhone,MLR.p.hist)
+MLR.test.RMSE<-RMSE(hold_iphone.lm$iPhone,MLR.p.hold)
+
+MLR.train.MAPE<-MAPE(hist_iphone.lm$iPhone,MLR.p.hist)
+MLR.test.MAPE<-MAPE(hold_iphone.lm$iPhone,MLR.p.hold)
+
+MLR.report<-rbind(MLR.train.R2,MLR.test.R2,
+                  MLR.train.RMSE,MLR.test.RMSE,
+                  MLR.train.MAPE,MLR.test.MAPE)
+MLR.report
+
+```
+2f. what are your findings and why Apple will not publish iPhone sales statistics after 2019?
+According to the results, ARIMA outperforms Multiple Linear Regression
+Both ARIMA and Multiple Linear Regression can predict the iPhone sales very well. 
+
+In the case of the iPhone, the smartphone market has changed since Apple sold 230 million iPhones in 2015. Overall, sales numbers of the iPhone have plateaued as Apple has reached or passed the saturation point in many markets.
+
+Apple is looking to take more control of its own narrative.
+If Apple can continue to sell services to the large base of users already who already own an iPhone, it has a decent path to sustainable growth outside of simply making more expensive products. The fact that Apple is no longer confident enough in the strength of that narrative to break out sales numbers might have something to do with it competitors and people may be able to affect the market.
+
+
+NUMBER 3
+Use the Quality of Life data (Case06_QoL_Symptom_ChronicIllness.csv) to fit multiple linear regression model predicting clinically relevant outcomes e.g. Chronic disease score.
+```{r echo=TRUE}
+#loading and cleaning the data
+rm(list = ls())
+
+#loading the data
+qol<-read.csv("https://umich.instructure.com/files/481332/download?download_frd=1")
+qol<-qol[!qol$CHRONICDISEASESCORE==-9,]
+qol<-qol[,-c(1:2)]
+qol<-qol[complete.cases(qol),]
+```
+
+3a. fit a best reduced Multiple Linear Regression model, report the results, and explain the summary, residuals, effect-size coefficients, and the coefficient of determination (R2)
+```{r echo=TRUE}
+library(stargazer)
+library(MASS)
+#1 Summarize and visualize the data using summary, str, pairs.panels, ggplot.
+colnames(qol)
+
+model.all_features <- lm(CHRONICDISEASESCORE~., data =qol)
+summary(model.all_features)
+
+### AIC Stepwise regression model
+model.AIC <- stepAIC(model.all_features, direction = "both",trace = FALSE)
+
+##BIC model selection 
+n <- (nrow(qol))
+model.BIC <- step(model.all_features,direction = "both", k=log(n),trace = FALSE )
+
+library(stargazer)
+stargazer(model.AIC,
+          model.BIC,
+          type = "text",
+          dep.var.labels=c("CHRONICDISEASESCORE"),
+          intercept.bottom = FALSE,
+          column.labels=c("model.AIC","model.BIC"), 
+          align=TRUE,
+          out = "table1.txt",
+          title="AIC and BIC models")
+
+```
+BIC model perform the best with Adjusted R2=0.08, then this model will be further improved using box cox tranform.
+All features, BIC and AIC models are used to improve the performance.
+Effect-size coeficients that are significants are indicated by stars. The more the stars, the more significants they are 
+
+
+3b. Check the normality assumption of the residuals or response variable using shapiro.test and ad.test
+
+```{r echo=TRUE}
+# plot QQ and residual plot
+plot(model.all_features, which = 1:2)
+library(fBasics) 
+library(nortest)
+normalTest(model.all_features$residuals) #saphiro-wilk test
+ad.test(model.all_features$residuals) #Anderson Darling test
+```
+the p-value for both test < 0.05. This means that the distribution of the data are significantly different from normal distribution. 
+In other words, it does not meet normality assumption.
+
+3c. Using the Box-cox transformation method to improve the model fitting and report the coefficient determination
+```{r echo=TRUE}
+library('R.utils')
+print('how many data is zero? ')
+sum(isZero(qol$CHRONICDISEASESCORE))
+# remove 1 data that has value=0 to allow us to use box cox transform
+qol<-qol[!isZero(qol$CHRONICDISEASESCORE),]
+
+
+library(EnvStats)
+bx<-boxcox(qol$CHRONICDISEASESCORE,optimize = TRUE)
+qol$CHRONICDISEASESCORE.trans=(qol$CHRONICDISEASESCORE^bx$lambda-1)/bx$lambda
+
+model.boxcox.all_feats<-lm(qol$CHRONICDISEASESCORE.trans~., data=qol[,-c(39)])
+summary(model.boxcox.all_feats)
+
+n <- (nrow(qol))
+model.AIC.bx <- stepAIC(model.boxcox.all_feats, direction = "both",trace = FALSE)
+model.BIC.bx <- step(model.boxcox.all_feats,direction = "both", k=log(n),trace = FALSE )
+
+library(stargazer)
+stargazer(model.AIC.bx,
+          model.BIC.bx,
+          dep.var.labels.include = FALSE,
+          single.row = TRUE, 
+          model.numbers= FALSE,
+          type = "text",
+          dep.var.labels=c("CHRONICDISEASESCORE"),
+          intercept.bottom = FALSE, 
+          column.labels=c("model.AIC.bx","model.BIC.bx"), 
+          align=TRUE,
+          out = "table1.txt",
+          title="Results")
+
+
+# plot(model.sqrt, which = 1:2)
+# plot(model.boxcox, which = 1:2)
+```
+
+After trying box-cox transform with reduced Multiple Linear Regression, the coefficient of dermination(R2), The best model is the model.AIC.bx with Adjusted R2 0.076.  
+
+

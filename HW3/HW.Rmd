@@ -1,0 +1,192 @@
+---
+title: "Homework 3"
+author: "Victor Andrean"
+date: "April 15, 2021"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+```{r echo=TRUE}
+rm(list = ls())
+RSQUARE = function(y_actual,y_predict)
+{ cor(y_actual,y_predict)^2 }
+
+google<-read.csv("Google_Trend_2005-2011.csv",sep=",",header=TRUE, skip=1)
+# google<-read.csv("https://umich.instructure.com/files/416274/download?download_frd=1", stringsAsFactors = F)
+google<-as.data.frame(google)
+str(google)
+summary(google$Jobs)
+sum(is.na(google$Jobs))
+
+library(ggplot2)
+
+plot(google$Jobs, type="l", col="blue")
+
+# install.packages("forecast")
+library(plyr)
+library(forecast)
+TimeSeries<-ts(google$Jobs, start=c(2005,1,1), frequency=365)
+ts.plot(TimeSeries)
+
+# install.packages("TTR")
+library(TTR)
+Jobs.month.SMA<-SMA(TimeSeries, n=30)
+Jobs.month.SMA <- na.omit(Jobs.month.SMA)
+plot.ts(Jobs.month.SMA, main="Jobs SMA", ylab="Jobs")
+
+Jobs.month.EMA<-EMA(TimeSeries, n=1, ratio = 2/(30+1))
+Jobs.month.EMA <- na.omit(Jobs.month.EMA)
+plot.ts(Jobs.month.EMA, main="Jobs EMA", ylab="Jobs")
+
+
+# Jobs.month.SMA<-Jobs.month.SMA[-c(1:30)]
+# Jobs.month.SMA<-na.interp(Jobs.month.SMA) #option 1
+# Jobs.month.SMA<-Jobs.month.SMA[!is.na(Jobs.month.SMA)] #option 2
+
+#===================differencing===============================
+# par(mfrow= c(2, 1))
+Jobs.diff2<-diff(TimeSeries, differences=2)
+plot.ts(Jobs.diff2, main="2nd differencing")
+tseries::adf.test(Jobs.diff2, alternative = "stationary")
+
+Jobs.diff<-diff(TimeSeries, differences=1)
+plot.ts(Jobs.diff, main="1st differencing")
+tseries::adf.test(Jobs.diff, alternative = "stationary")
+
+#===================differencing month==========================
+Jobs.diff2<-diff(Jobs.month.SMA, differences=2)
+plot.ts(Jobs.diff2, main="2nd differencing")
+tseries::adf.test(Jobs.diff2, alternative = "stationary")
+
+Jobs.diff<-diff(Jobs.month.SMA, differences=1)
+plot.ts(Jobs.diff, main="1st differencing")
+tseries::adf.test(Jobs.diff, alternative = "stationary")
+
+# according to ADF test first differencing is enough to make the series stationer
+#==========================================================
+
+# par(mfrow=c(1, 2))
+acf(ts(Jobs.diff), main="ACF")
+pacf(ts(Jobs.diff), main="PACF")
+
+#==================decomposition==============================
+count_ma = ts(Jobs.month.SMA, frequency=12)
+decomp = stl(count_ma, s.window="periodic")
+deseasonal_count <- forecast::seasadj(decomp)
+plot(decomp)
+
+#===========================ADF test=========================
+tseries::adf.test(count_ma, alternative = "stationary")
+tseries::adf.test(Jobs.diff, alternative = "stationary")
+
+#================== Build an ARIMA model ====================
+
+fit<-auto.arima(Jobs.month.SMA)
+fit
+# the optimum hyperparameters are ARIMA(3,1,5) with drift
+plot(residuals(fit))
+Acf(residuals(fit),lag.max = 45)
+
+library(fBasics) 
+normalTest(residuals(fit))
+"
+from the ACF plot of the residual error, the model could be further improved
+"
+
+
+tsdisplay(residuals(fit), lag.max=45, main='Model Residuals')
+
+displayForecastErrors <- function(forecastErrors)
+{
+  # Generate a histogram of the Forecast Errors
+  binsize <- IQR(forecastErrors)/4
+  sd   <- sd(forecastErrors)
+  min  <- min(forecastErrors) - sd
+  max  <- max(forecastErrors) + sd
+
+  # Generate 5K normal(0,sd) RVs
+  norm <- rnorm(5000, mean=0, sd=sd)
+  min2 <- min(norm)
+  max2 <- max(norm)
+  if (min2 < min) { min <- min2 }
+  if (max2 > max) { max <- max2 }
+
+  # Plot red histogram of the forecast errors
+  bins <- seq(min, max, binsize)
+  hist(forecastErrors, col="red", freq=FALSE, breaks=bins)
+
+  myHist <- hist(norm, plot=FALSE, breaks=bins)
+
+  # Overlay the Blue normal curve on top of forecastErrors histogram
+  points(myHist$mids, myHist$density, type="l", col="blue", lwd=2)
+}
+
+displayForecastErrors(residuals(fit))
+
+"
+ The shaded regions indicate ranges of expected errors. 
+ The darker (inner) region represents by 80% confidence range and the lighter (outer) region bounds by the 95% interval. 
+ Obviously near-term forecasts have tighter ranges of expected errors, 
+ compared to longer-term forecasts where the variability naturally expands.
+"
+
+#=======================forecasting ARIMA model==================
+# par(mfrow=c(1, 1))
+ts.forecasts<-forecast(fit, h=365)
+plot(ts.forecasts,include = 1500) #
+plot(ts.forecasts$mean)
+
+#=============evaluation========================================
+"
+to measure the performace with the unseen data I split the data into training and testing
+training data is from 2005 until 2010
+testing data is the rest of the data in the year of 2011. there are 201 data in total
+"
+testing_days=length(c(2192:2392))
+train_idx<-length(Jobs.month.SMA)-testing_days
+test_idx<-length(Jobs.month.SMA)
+
+train_data <-ts(Jobs.month.SMA, start=1,end=train_idx)
+test_data <-ts(Jobs.month.SMA, start=train_idx+1,end=test_idx)
+
+fit2<-auto.arima(train_data)
+summary(fit2)
+
+
+fit2.forecast<-forecast(fit2, h=testing_days)
+plot(fit2.forecast,include = 1500) #
+
+require(ggplot2)
+library(reshape2)
+df_test <- data.frame (time = 1:testing_days,
+                        forecast = fit2.forecast$mean,
+                        real = test_data)
+
+df_train <- data.frame (time = 1:train_idx,
+                       forecast = fit2.forecast$fitted,
+                       real = train_data)
+
+
+df_train.melt  <- melt(df_train ,  id.vars = 'time', variable.name = 'series')
+df_test.melt <- melt(df_test ,  id.vars = 'time', variable.name = 'series')
+
+
+
+ggplot(df_train.melt, aes(time,value)) + geom_line(aes(colour = series))
+ggplot(df_test.melt, aes(time,value)) + geom_line(aes(colour = series))
+
+
+print("Rsquare for fitted")
+RSQUARE(df_train$real,df_train$forecast)
+
+print("Rsquare for testing")
+RSQUARE(df_test$real,df_test$forecast)
+
+"
+we can see that the Rsquare for the testing data is 0.2867078
+"
+```
